@@ -72,7 +72,7 @@ jobs:
       - name: Set up SukiSU
         run: |
          cd kernel_workspace/kernel_platform
-         curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+         curl -LSs "https://raw.githubusercontent.com/bbkr1/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
          cd ./KernelSU
          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
@@ -82,8 +82,8 @@ jobs:
       - name: Set up susfs
         run: |
            cd kernel_workspace
-           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
-           git clone https://github.com/ExmikoN/SukiSU_patch.git
+           git clone https://gitlab.com/bbkr1/susfs4ksu.git -b gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
+           git clone https://github.com/bbkr1/SukiSU_patch.git
 
            cd kernel_platform        
            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
@@ -161,7 +161,7 @@ jobs:
       - name: Make AnyKernel3
         run: |
          cd kernel_workspace/kernel_platform/dist/
-         curl -LO https://github.com/ShirkNeko/SukiSU_KernelPatch_patch/releases/download/0.11-beta/patch_linux
+         curl -LO https://github.com/bbkr1/SukiSU_KernelPatch_patch/releases/download/0.11-beta/patch_linux
          chmod +x patch_linux
          ./patch_linux
          rm -f Image
