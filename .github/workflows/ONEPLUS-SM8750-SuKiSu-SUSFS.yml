@@ -157,15 +157,6 @@ jobs:
         run: |
          cd kernel_workspace/kernel_platform
          tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
-
-      - name: Make AnyKernel3
-        run: |
-         cd kernel_workspace/kernel_platform/dist/
-         curl -LO https://github.com/bbkr1/SukiSU_KernelPatch_patch/releases/download/0.11-beta/patch_linux
-         chmod +x patch_linux
-         ./patch_linux
-         rm -f Image
-         mv oImage Image
          
       - name: Make AnyKernel3
         run: |
