@@ -34,7 +34,7 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-	  
+      
     steps:
 	  # 优化系统
       - name: Maximize build space
