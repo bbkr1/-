@@ -54,11 +54,43 @@ jobs:
           git config --global user.name "build"
           git config --global user.email "weixin@qq.com"
       
+      # 设置系统
+      - name: Setup System
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
+          
+          df -h
+          
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift || true
+          sudo docker image prune --all --force
+          
+          # 移除较大的不需要的包
+          sudo apt-get purge -y \
+            aria2 ansible azure-cli shellcheck rpm xorriso zsync \
+            esl-erlang firefox gfortran-8 gfortran-9 google-chrome-stable \
+            google-cloud-sdk imagemagick \
+            libmagickcore-dev libmagickwand-dev libmagic-dev ant ant-optional kubectl \
+            mercurial apt-transport-https mono-complete libmysqlclient \
+            unixodbc-dev yarn chrpath libssl-dev libxft-dev \
+            libfreetype6 libfreetype6-dev libfontconfig1 libfontconfig1-dev \
+            snmp pollinate libpq-dev postgresql-client powershell ruby-full \
+            sphinxsearch subversion mongodb-org microsoft-edge-stable || true
+          
+          # 基于Regex的清理 (如mysql, php, dotnet)
+          sudo apt-get purge -y $(dpkg-query -W -f='${binary:Package}\n' | grep -E '^mysql|^php|^dotnet') || true
+          
+          # 清理包
+          sudo apt-get autoremove -y
+          sudo apt-get autoclean -y
+          
+          df -h
+      
       # 安装依赖
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y python3 git curl
+          sudo apt install -y python3 python-is-python3 git curl
       
       # 安装repo工具
       - name: Install repo tool
@@ -71,8 +103,8 @@ jobs:
       - name: Initialize repo and sync
         run: |
           mkdir kernel_workspace && cd kernel_workspace
-          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git -b refs/heads/oneplus/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.FEIL }}.xml --depth=1
-          repo sync -c -j$(nproc --all) --no-tags
+          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git -b refs/heads/oneplus/${{ github.event.inputs.CPU }} -m ${{ github.event.inputs.FEIL }}.xml --depth=1 --no-clone-bundle --no-tags
+          repo --trace sync -c --no-clone-bundle --optimized-fetch -j$(nproc --all) --no-tags --fail-fast
           
           # 删除限制文件以解除限制
           if [  -e kernel_platform/common/BUILD.bazel ]; then
@@ -89,11 +121,19 @@ jobs:
       - name: Set up SukiSU
         run: |
           cd kernel_workspace/kernel_platform
+
+          # 目前使用开发版
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+
           cd ./KernelSU
+
+          # 目前版本号的偏移计算
           KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+
           export KSU_VERSION=$KSU_VERSION
+
+          # 目前版本号的范围 12800
           sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
       
       # 设置susfs和SukiSU_patch
@@ -104,7 +144,7 @@ jobs:
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
           
           # 打susfs补丁
-          cd kernel_platform        
+          cd kernel_platform
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch ./common/
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
@@ -116,21 +156,33 @@ jobs:
           cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./common/lib/
           
           # 应用susfs补丁
-          cd ./common       
+          cd ./common
+
+          # 动态加入头文件 但不知道起什么作用
+          if [ "${{ github.event.inputs.CPUD }}" == "sun" ]; then
+            sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace/hooks/fs.h>' ./fs/namespace.c
+          fi
+
           patch -p1 < 50_add_susfs_in_gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}.patch || true
       
       # 应用隐藏应用补丁
       - name: Apply Hide Stuff Patches
         run: |
-          # cp ../../kernel_patches/69_hide_stuff.patch ./
-          # patch -p1 -F 3 < 69_hide_stuff.patch
-          
-          cp ../../../SukiSU_patch/hooks/syscall_hooks.patch ./
+          # 应用核心Hooks
+          cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
           patch -p1 -F 3 < syscall_hooks.patch
+
+          # 应用隐藏补丁
+          cp ../../kernel_patches/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
           
           rm -rf ./fs/namespace.c
           rm -rf ./fs/namespace.c.rej
-          cp ../../SukiSU_patch/namespace.c ./fs
+
+          git clone https://github.com/bbkr1/oneplus_ace5_pro_AK3.git
+          cp ./oneplus_ace5_pro_AK3/namespace.c ./fs
+          
+          rm -rf oneplus_ace5_pro_AK3
       
       # 应用lz4kd补丁
       - name: Apply lz4kd Patches
@@ -211,17 +263,47 @@ jobs:
       # 构建内核
       - name: Build kernel
         run: |
+          # 核心并行执行所有脚本
+          find . -type f -exec sed -i 's/\(make\s\+-C[^\n]*\)\s\+/\1 -j$(nproc) /g' {} +
+
           cd kernel_workspace
+
+          # 清理缓存
+          sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
+          
+          rm ./kernel_platform/common/android/abi_gki_protected_exports_* || echo "No protected exports!"
+          rm ./kernel_platform/msm-kernel/android/abi_gki_protected_exports_* || echo "No protected exports!"
+
+          # 硬编码使用gki编译
           LTO=thin ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} gki
+
+          # 性能监控
+          (stdbuf -oL bash -c '
+            while true; do
+              echo "=== $(date) ==="
+              free -h
+              echo "======"
+              df -h
+              echo "======"
+              top -b -n 1 | head -n 15
+              echo ""
+              sleep 60
+            done
+          ') &
+          MONITOR_PID=$!
+          trap "kill $MONITOR_PID" EXIT
       
       # 打kpm补丁并替换Image
       - name: Apply kpm patch and replace Image
         run: |
           #cd kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-${{ github.event.inputs.BUILD_METHOD }}/dist/
           cd kernel_workspace/kernel_platform/dist/
+
           curl -LO https://github.com/ShirkNeko/SukiSU_KernelPatch_patch/releases/download/0.11-beta/patch_linux
+
           chmod +x patch_linux
           ./patch_linux
+
           rm -f Image
           mv oImage Image
       
