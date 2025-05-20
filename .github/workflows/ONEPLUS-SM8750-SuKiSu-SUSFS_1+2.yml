@@ -326,6 +326,7 @@ jobs:
       # 打kpm补丁并替换Image
       - name: Apply kpm patch and replace Image
         run: |
+          ls
           cd kernel_workspace/kernel_platform/out/msm-kernel-${{ github.event.inputs.CPUD }}-perf/dist/
           #cd kernel_workspace/kernel_platform/dist/
 
